@@ -1,0 +1,64 @@
+{
+  "bookings": [
+    {
+      "name": "Test User",
+      "phone": "+996 555 123 456",
+      "service": "beard",
+      "date": "2026-03-27",
+      "time": "10:00",
+      "bank": "kicb",
+      "timestamp": "2026-03-23T19:35:21.898Z"
+    },
+    {
+      "name": "Test User",
+      "phone": "+996 555 123 456",
+      "service": "beard",
+      "date": "2026-03-27",
+      "time": "10:30",
+      "bank": "kicb",
+      "timestamp": "2026-03-23T19:36:54.948Z"
+    },
+    {
+      "name": "Test User",
+      "phone": "+996 555 123 456",
+      "service": "haircut",
+      "date": "2026-04-19",
+      "time": "10:00",
+      "bank": "kicb",
+      "timestamp": "2026-03-24T09:32:50.704Z"
+    },
+    {
+      "id": "lavtk52if",
+      "name": "Manual Test",
+      "phone": "+996 111 222 333",
+      "service": "haircut",
+      "date": "2026-03-29",
+      "time": "10:00",
+      "bank": "kicb",
+      "status": "confirmed",
+      "timestamp": "2026-03-24T09:56:25.319Z"
+    },
+    {
+      "id": "ebwitc5mw",
+      "name": "Master Mike",
+      "phone": "+996 999 000 111",
+      "service": "beard",
+      "date": "2026-03-27",
+      "time": "11:00",
+      "bank": "kicb",
+      "status": "pending",
+      "timestamp": "2026-03-24T09:58:51.226Z"
+    },
+    {
+      "id": "9m5l7fnv0",
+      "name": "Verify Admin",
+      "phone": "0555777888",
+      "service": "haircut",
+      "date": "2026-03-28",
+      "time": "10:00",
+      "bank": "kicb",
+      "status": "pending",
+      "timestamp": "2026-03-24T17:32:44.386Z"
+    }
+  ]
+}

@@ -1,6 +1,8 @@
-// Static Version - Open/Closed state stored in localStorage
-let is_open = localStorage.getItem('is_open') !== 'false';
+// Backend Version - Connected to Node.js Server
+const API_BASE = ""; // Base URL for API calls
+let is_open = true; // Status can be managed via backend too, but for now kept simple
 const closedMessage = "Sorry bro, the barbershop is closed right now. We will be back soon!";
+let pendingBooking = null;
 
 function checkStatus() {
     const banner = document.getElementById('status-banner');
@@ -21,7 +23,6 @@ function checkStatus() {
 
 function toggleShopStatus() {
     is_open = !is_open;
-    localStorage.setItem('is_open', is_open);
     checkStatus();
     alert(`Shop is now ${is_open ? 'OPEN' : 'CLOSED'}`);
 }
@@ -29,10 +30,8 @@ function toggleShopStatus() {
 // Dynamic Slot Generation Logic
 function getSlotsForService(service) {
     if (service === 'haircut') {
-        // Haircut: 10:00, 11:30, 14:00, 15:30 (1.5h blocks, lunch skip)
         return ["10:00", "11:30", "14:00", "15:30"];
     } else {
-        // Beard Trim: 30min blocks, skip 13:00-14:00 lunch
         const slots = [];
         for (let h = 10; h < 17; h++) {
             if (h === 13) continue; // Lunch
@@ -46,34 +45,67 @@ function renderTimeSlots() {
     const service = document.getElementById('service').value;
     const dateStr = document.getElementById('date').value;
     const grid = document.getElementById('time-grid');
-    grid.innerHTML = '';
+    grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #888;">Loading slots...</p>';
     
-    if (!dateStr) return;
+    if (!dateStr) {
+        grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #888;">Please select a date first.</p>';
+        return;
+    }
 
     const selectedDate = new Date(dateStr);
-    const now = new Date();
-    const isToday = selectedDate.toDateString() === now.toDateString();
-    
-    const slots = getSlotsForService(service);
-    const takenSlots = JSON.parse(localStorage.getItem(`taken_${dateStr}`) || '[]');
+    const dayOfWeek = selectedDate.getDay();
 
-    slots.forEach(time => {
-        const [hour, minute] = time.split(':').map(Number);
-        const slotDate = new Date(selectedDate);
-        slotDate.setHours(hour, minute, 0, 0);
+    // Frontend validation for service dates
+    if (service === 'haircut' && dayOfWeek !== 0 && dayOfWeek !== 6) {
+        grid.innerHTML = '<p style="color: #ff4d4d; grid-column: 1/-1; text-align: center; background: rgba(255,0,0,0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,0,0,0.2);"><strong>Haircuts are WEEKENDS ONLY.</strong><br>Please select a Saturday or Sunday on the calendar above.</p>';
+        return;
+    }
+    if (service === 'beard' && dayOfWeek !== 5) {
+        grid.innerHTML = '<p style="color: #ff4d4d; grid-column: 1/-1; text-align: center; background: rgba(255,0,0,0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,0,0,0.2);"><strong>Beard trims are FRIDAYS ONLY.</strong><br>Please select a Friday on the calendar above.</p>';
+        return;
+    }
 
-        const slot = document.createElement('div');
-        slot.className = 'time-slot';
-        slot.innerText = time;
-        
-        // Disable slots that are in the past (if today) or taken
-        if (takenSlots.includes(time) || (isToday && slotDate < now)) {
-            slot.classList.add('taken');
-        } else {
-            slot.onclick = () => selectTime(slot, time);
-        }
-        grid.appendChild(slot);
-    });
+    // Fetch taken slots from server
+    fetch(`${API_BASE}/api/bookings?date=${dateStr}`)
+        .then(res => res.json())
+        .then(takenSlots => {
+            const slots = getSlotsForService(service);
+            const now = new Date();
+            const isToday = selectedDate.toDateString() === now.toDateString();
+
+            grid.innerHTML = '';
+            let availableCount = 0;
+
+            slots.forEach(time => {
+                const [hour, minute] = time.split(':').map(Number);
+                const slotDate = new Date(selectedDate);
+                slotDate.setHours(hour, minute, 0, 0);
+
+                const slot = document.createElement('div');
+                slot.className = 'time-slot';
+                slot.innerText = time;
+                
+                const isPast = isToday && slotDate < now;
+                const isTaken = takenSlots.includes(time);
+
+                if (isTaken || isPast) {
+                    slot.classList.add('taken');
+                    slot.title = isTaken ? "Already booked" : "Time passed";
+                } else {
+                    slot.onclick = () => selectTime(slot, time);
+                    availableCount++;
+                }
+                grid.appendChild(slot);
+            });
+
+            if (availableCount === 0) {
+                grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #ffbc00; background: rgba(255,188,0,0.1); padding: 10px; border-radius: 10px;">All slots for this day are fully booked or past. Try another date!</p>';
+            }
+        })
+        .catch(err => {
+            console.error("Error fetching slots:", err);
+            grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #ff4d4d;">Error connecting to server. Please try again later.</p>';
+        });
 }
 
 function selectTime(element, time) {
@@ -82,50 +114,127 @@ function selectTime(element, time) {
     document.getElementById('selected-time').value = time;
 }
 
+// Global modal controls
+window.closePaymentModal = function() {
+    document.getElementById('payment-modal').style.display = 'none';
+    pendingBooking = null;
+};
+
+window.confirmPayment = function() {
+    if (!pendingBooking) return;
+    
+    const confirmBtn = document.querySelector('#payment-modal .btn-primary');
+    const originalText = confirmBtn.innerText;
+    confirmBtn.innerText = "Processing...";
+    confirmBtn.disabled = true;
+
+    fetch(`${API_BASE}/api/book`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pendingBooking)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            confirmBtn.innerText = originalText;
+            confirmBtn.disabled = false;
+        } else {
+            // Hide payment modal, show status overlay
+            document.getElementById('payment-modal').style.display = 'none';
+            showStatusOverlay(data.id);
+        }
+    })
+    .catch(err => {
+        alert("Something went wrong connection to the server. Please check if backend is running.");
+        confirmBtn.innerText = originalText;
+        confirmBtn.disabled = false;
+    });
+};
+
+function showStatusOverlay(bookingId) {
+    const overlay = document.getElementById('status-overlay');
+    overlay.style.display = 'flex';
+    
+    // Poll for status
+    const pollInterval = setInterval(() => {
+        fetch(`${API_BASE}/api/booking-status/${bookingId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'confirmed') {
+                    clearInterval(pollInterval);
+                    document.getElementById('status-title').innerText = "Payment Received!";
+                    document.getElementById('status-desc').innerText = "The master has confirmed your payment. Redirecting...";
+                    document.getElementById('status-spinner').style.display = 'none';
+                    setTimeout(() => {
+                        alert("SUCCESS! Your booking is confirmed. See you then bro!");
+                        location.reload();
+                    }, 2000);
+                } else if (data.status === 'rejected') {
+                    clearInterval(pollInterval);
+                    document.getElementById('status-title').innerText = "Payment Not Received";
+                    document.getElementById('status-title').style.color = "#e74c3c";
+                    document.getElementById('status-desc').innerText = "The master could not find your payment. Please contact +996 552 766 222.";
+                    document.getElementById('status-spinner').style.display = 'none';
+                    
+                    const closeBtn = document.createElement('button');
+                    closeBtn.innerText = "Close";
+                    closeBtn.className = "btn-secondary";
+                    closeBtn.style.marginTop = "20px";
+                    closeBtn.onclick = () => location.reload();
+                    document.querySelector('#status-overlay .modal-content').appendChild(closeBtn);
+                }
+            })
+            .catch(err => console.error("Polling error:", err));
+    }, 3000); // Check every 3s
+}
+
 // Initial Setup
 const dateInput = document.getElementById('date');
 const serviceInput = document.getElementById('service');
 
-// Block past dates
-const todayStr = new Date().toISOString().split('T')[0];
-dateInput.setAttribute('min', todayStr);
-dateInput.value = todayStr;
+if (dateInput) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    dateInput.setAttribute('min', todayStr);
+    dateInput.value = todayStr;
+    dateInput.addEventListener('change', renderTimeSlots);
+}
 
-dateInput.addEventListener('change', renderTimeSlots);
-serviceInput.addEventListener('change', renderTimeSlots);
-
-renderTimeSlots();
+if (serviceInput) {
+    serviceInput.addEventListener('change', renderTimeSlots);
+}
 
 const form = document.getElementById('book-form');
 if (form) {
-    form.addEventListener('submit', async (e) => {
+    form.addEventListener('submit', (e) => {
         e.preventDefault();
         
-        const name = document.getElementById('name').value;
-        const phone = document.getElementById('phone').value;
-        const date = document.getElementById('date').value;
         const time = document.getElementById('selected-time').value;
-        const bank = document.getElementById('bank').value;
-
         if (!time) {
             alert("Please select a time slot!");
             return;
         }
+
+        const service = document.getElementById('service').value;
+        const price = service === 'haircut' ? 400 : 200;
+
+        // Populate and show modal
+        document.getElementById('payment-amount').innerText = price;
+        document.getElementById('payment-service').innerText = service === 'haircut' ? 'Haircut' : 'Beard Trim';
         
-        const bookBtn = document.getElementById('book-btn');
-        bookBtn.innerText = "Processing Transaction...";
-        bookBtn.disabled = true;
+        pendingBooking = {
+            name: document.getElementById('name').value,
+            phone: document.getElementById('phone').value,
+            service: service,
+            date: document.getElementById('date').value,
+            time: time,
+            bank: document.getElementById('bank').value
+        };
 
-        // Persistence
-        const takenSlots = JSON.parse(localStorage.getItem(`taken_${date}`) || '[]');
-        takenSlots.push(time);
-        localStorage.setItem(`taken_${date}`, JSON.stringify(takenSlots));
-
-        setTimeout(() => {
-            alert(`SUCCESS! 400 SOM deducted from your ${bank.toUpperCase()} card.\nBooking confirmed for ${time}.`);
-            window.location.href = `https://mock-payment-gateway.com/${bank}?amount=400&to=AminURJ&user=${encodeURIComponent(name)}`;
-        }, 2000);
+        document.getElementById('payment-modal').style.display = 'flex';
     });
 }
 
+// Start up
+renderTimeSlots();
 checkStatus();

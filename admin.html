@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard | URJ Barbershop</title>
+    <link rel="stylesheet" href="barber.css">
+    <style>
+        body { padding-top: 50px; }
+        .admin-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .booking-table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+        .booking-table th, .booking-table td { padding: 15px; text-align: left; border-bottom: 1px solid var(--glass-border); }
+        .status-badge { padding: 5px 10px; border-radius: 5px; font-size: 0.8rem; font-weight: bold; }
+        .status-pending { background: #f1c40f; color: black; }
+        .status-confirmed { background: #2ecc71; color: white; }
+        .status-rejected { background: #e74c3c; color: white; }
+        .actions { display: flex; gap: 10px; }
+        .btn-small { padding: 8px 12px; font-size: 0.8rem; border-radius: 5px; cursor: pointer; border: none; }
+        .btn-approve { background: #2ecc71; color: white; }
+        .btn-reject { background: #e74c3c; color: white; }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <h1 style="color: var(--primary-color);">Master Admin Dashboard</h1>
+        <p>Confirm receipts from KICB/Alif here.</p>
+
+        <table class="booking-table">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Service</th>
+                    <th>Date & Time</th>
+                    <th>Bank</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="admin-table-body">
+                <!-- Dynamic -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let adminPassword = sessionStorage.getItem('adminPassword');
+
+        function checkAuth() {
+            if (!adminPassword) {
+                adminPassword = prompt("Please enter the master admin password:");
+                if (adminPassword) {
+                    sessionStorage.setItem('adminPassword', adminPassword);
+                }
+            }
+        }
+
+        function loadBookings() {
+            if (!adminPassword) return checkAuth();
+
+            fetch('/api/admin/bookings', {
+                headers: { 'x-admin-password': adminPassword }
+            })
+            .then(res => {
+                if (res.status === 401) {
+                    alert("Invalid password! Access denied.");
+                    sessionStorage.removeItem('adminPassword');
+                    adminPassword = null;
+                    location.reload();
+                    return [];
+                }
+                return res.json();
+            })
+            .then(bookings => {
+                const body = document.getElementById('admin-table-body');
+                if (!body) return;
+                body.innerHTML = '';
+                bookings.reverse().forEach(b => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>
+                            <strong>${b.name}</strong><br>
+                            <small>${b.phone}</small>
+                        </td>
+                        <td>${b.service.toUpperCase()}</td>
+                        <td>${b.date} at ${b.time}</td>
+                        <td>${b.bank.toUpperCase()}</td>
+                        <td><span class="status-badge status-${b.status}">${b.status.toUpperCase()}</span></td>
+                        <td class="actions">
+                            ${b.status === 'pending' ? `
+                                <button onclick="updateStatus('${b.id}', 'confirmed')" class="btn-small btn-approve">Confirm Payment</button>
+                                <button onclick="updateStatus('${b.id}', 'rejected')" class="btn-small btn-reject">Not Received</button>
+                            ` : '-'}
+                        </td>
+                    `;
+                    body.appendChild(tr);
+                });
+            })
+            .catch(err => console.error("Error loading bookings:", err));
+        }
+
+        function updateStatus(id, status) {
+            fetch('/api/admin/update-status', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-admin-password': adminPassword
+                },
+                body: JSON.stringify({ id, status })
+            }).then(res => {
+                if (res.status === 401) {
+                    alert("Session expired or invalid password.");
+                    location.reload();
+                } else {
+                    loadBookings();
+                }
+            });
+        }
+
+        checkAuth();
+        loadBookings();
+        setInterval(loadBookings, 8000); // Refresh every 8s
+    </script>
+</body>
+</html>
